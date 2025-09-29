@@ -1,6 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NChainer;
 using NConstrictor;
+using KelpNet.CPU;
 //using Real = System.Double;
 using Real = System.Single;
 
@@ -162,6 +163,75 @@ namespace KelpNet.Tests
             {
                 Assert.AreEqual(cupwardbGrad2[i + wLen * 0], lstm.upward.Bias.Grad[i], delta);
             }
+        }
+
+        [TestMethod]
+        public void LSTMStatePersistenceTest()
+        {
+            LSTM<Real> lstm = new LSTM<Real>(2, 3);
+            Linear<Real> linear = new Linear<Real>(3, 1);
+            FunctionStack<Real> stack = new FunctionStack<Real>(lstm, linear);
+
+            NdArray<Real> firstInput = new NdArray<Real>(new Real[,] { { 0.1f, -0.2f } }, asBatch: true);
+            NdArray<Real> firstOutput = stack.Forward(firstInput)[0];
+            Assert.IsNotNull(firstOutput);
+
+            NdArray<Real> hiddenSnapshot = lstm.HiddenState;
+            NdArray<Real> cellSnapshot = lstm.CellState;
+
+            Assert.IsNotNull(hiddenSnapshot);
+            Assert.IsNotNull(cellSnapshot);
+
+            NdArray<Real> secondInput = new NdArray<Real>(new Real[,] { { -0.05f, 0.3f } }, asBatch: true);
+            NdArray<Real> expectedOutput = stack.Forward(secondInput)[0];
+
+            lstm.ResetStates();
+            lstm.HiddenState = hiddenSnapshot;
+            lstm.CellState = cellSnapshot;
+
+            NdArray<Real> restoredOutput = stack.Forward(secondInput)[0];
+
+            float delta = 1e-5f;
+            for (int i = 0; i < expectedOutput.Data.Length; i++)
+            {
+                Assert.AreEqual(expectedOutput.Data[i], restoredOutput.Data[i], delta);
+            }
+        }
+
+        [TestMethod]
+        public void IncrementalTrainerUpdatesParameters()
+        {
+            LSTM<Real> lstm = new LSTM<Real>(1, 2);
+            Linear<Real> linear = new Linear<Real>(2, 1);
+            FunctionStack<Real> stack = new FunctionStack<Real>(lstm, linear);
+
+            Adam<Real> optimizer = new Adam<Real>();
+            MeanSquaredError<Real> lossFunction = new MeanSquaredError<Real>();
+            IncrementalTrainer<Real, Real> trainer = new IncrementalTrainer<Real, Real>(stack, optimizer, lossFunction);
+
+            Real[] initialWeights = (Real[])linear.Weight.Data.Clone();
+
+            NdArray<Real> input1 = new NdArray<Real>(new Real[,] { { 0.5f } }, asBatch: true);
+            NdArray<Real> target1 = new NdArray<Real>(new Real[,] { { 0.25f } }, asBatch: true);
+            trainer.UpdateIncremental(input1, target1);
+
+            NdArray<Real> input2 = new NdArray<Real>(new Real[,] { { -0.3f } }, asBatch: true);
+            NdArray<Real> target2 = new NdArray<Real>(new Real[,] { { -0.15f } }, asBatch: true);
+            trainer.UpdateIncremental(input2, target2);
+
+            bool weightUpdated = false;
+            for (int i = 0; i < linear.Weight.Data.Length; i++)
+            {
+                if (linear.Weight.Data[i] != initialWeights[i])
+                {
+                    weightUpdated = true;
+                    break;
+                }
+            }
+
+            Assert.IsTrue(weightUpdated, "Weights should change after incremental training updates.");
+            Assert.IsNotNull(lstm.HiddenState);
+            Assert.IsNotNull(lstm.CellState);
         }
     }
 }

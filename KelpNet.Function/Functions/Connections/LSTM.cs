@@ -102,6 +102,81 @@ namespace KelpNet
             InitFunc(new StreamingContext());
         }
 
+        public NdArray<T> HiddenState
+        {
+            get
+            {
+                return this.hParam?.Clone();
+            }
+            set
+            {
+                if (value == null)
+                {
+                    ClearTemporalCaches();
+                    this.hParam = null;
+                    return;
+                }
+
+#if DEBUG
+                if (value.Length != this.OutputCount)
+                {
+                    throw new ArgumentException("Hidden state length does not match the LSTM output size.");
+                }
+#endif
+
+                ClearTemporalCaches();
+
+                T[] dataCopy = new T[value.Data.Length];
+                Array.Copy(value.Data, dataCopy, dataCopy.Length);
+
+                int[] shapeCopy = new int[value.Shape.Length];
+                Array.Copy(value.Shape, shapeCopy, shapeCopy.Length);
+
+                this.hParam = new NdArray<T>(dataCopy, shapeCopy, value.BatchCount, this);
+            }
+        }
+
+        public NdArray<T> CellState
+        {
+            get
+            {
+                if (this.cPrev == null || this.cPrev.Length == 0)
+                {
+                    return null;
+                }
+
+                int batchCount = System.Math.Max(1, this.cPrev.Length / this.OutputCount);
+
+                T[] dataCopy = new T[this.cPrev.Length];
+                Array.Copy(this.cPrev, dataCopy, dataCopy.Length);
+
+                return new NdArray<T>(dataCopy, new[] { this.OutputCount }, batchCount, this);
+            }
+            set
+            {
+                if (value == null)
+                {
+                    ClearTemporalCaches();
+                    this.cPrev = null;
+                    return;
+                }
+
+#if DEBUG
+                if (value.Length != this.OutputCount)
+                {
+                    throw new ArgumentException("Cell state length does not match the LSTM output size.");
+                }
+#endif
+
+                ClearTemporalCaches();
+
+                T[] dataCopy = new T[value.Data.Length];
+                Array.Copy(value.Data, dataCopy, dataCopy.Length);
+
+                this.cPrev = dataCopy;
+            }
+        }
+
         [OnDeserializing]
         void InitFunc(StreamingContext sc)
         {
@@ -123,7 +198,18 @@ namespace KelpNet
         {
             base.ResetState();
             this.hParam = null;
+            this.cPrev = null;
 
+            ClearTemporalCaches();
+        }
+
+        public void ResetStates()
+        {
+            ResetState();
+        }
+
+        private void ClearTemporalCaches()
+        {
             this.paramLists = new List<T[][]>();
             this.hPrevParams = new List<NdArray<T>>();
 
@@ -147,14 +233,15 @@ namespace KelpNet
 
             NdArray<Real> lstmIn = upward.Forward(x)[0];
 
-            if (hParam == null)
-            {
-                lcPrev = new Real[outputDataSize];
-            }
-            else
+            EnsureCellState(ref lcPrev, outputCount, x.BatchCount);
+
+            if (hParam != null)
             {
                 NdArray<Real> hPrevParam = hParam.Clone();
                 if (hPrevParam.Grad != null) hPrevParam.InitGrad();
+
+                hPrevParam = PrepareHiddenState(hPrevParam, x.BatchCount, lstm);
+
                 lstmIn += lateral.Forward(hPrevParam)[0];
                 hPrevParams.Add(hPrevParam);
             }
@@ -246,6 +333,76 @@ namespace KelpNet
                 paramLists.AddRange(usedParamLists);
                 usedParamLists.Clear();
             }
+        }
+
+        static void EnsureCellState(ref Real[] cellState, int outputCount, int batchCount)
+        {
+            int expectedLength = outputCount * batchCount;
+
+            if (cellState == null || cellState.Length == 0)
+            {
+                cellState = new Real[expectedLength];
+                return;
+            }
+
+            if (cellState.Length == expectedLength)
+            {
+                return;
+            }
+
+            if (cellState.Length % outputCount == 0)
+            {
+                Real[] adjusted = new Real[expectedLength];
+
+                if (cellState.Length > expectedLength)
+                {
+                    Array.Copy(cellState, cellState.Length - expectedLength, adjusted, 0, expectedLength);
+                }
+                else
+                {
+                    for (int offset = 0; offset < expectedLength; offset += cellState.Length)
+                    {
+                        int remain = System.Math.Min(cellState.Length, expectedLength - offset);
+                        Array.Copy(cellState, 0, adjusted, offset, remain);
+                    }
+                }
+
+                cellState = adjusted;
+                return;
+            }
+
+            Real[] fallback = new Real[expectedLength];
+            Array.Copy(cellState, 0, fallback, 0, System.Math.Min(expectedLength, cellState.Length));
+            cellState = fallback;
+        }
+
+        static NdArray<Real> PrepareHiddenState(NdArray<Real> hiddenState, int targetBatchCount, IFunction<Real> lstm)
+        {
+            if (hiddenState.BatchCount == targetBatchCount)
+            {
+                return hiddenState;
+            }
+
+            if (hiddenState.BatchCount == 1 && targetBatchCount > 1)
+            {
+                Real[] expanded = new Real[hiddenState.Length * targetBatchCount];
+
+                for (int b = 0; b < targetBatchCount; b++)
+                {
+                    Array.Copy(hiddenState.Data, 0, expanded, b * hiddenState.Length, hiddenState.Length);
+                }
+
+                return new NdArray<Real>(expanded, hiddenState.Shape, targetBatchCount, lstm);
+            }
+
+            if (targetBatchCount == 1 && hiddenState.BatchCount > 1)
+            {
+                Real[] reduced = new Real[hiddenState.Length];
+                Array.Copy(hiddenState.Data, (hiddenState.BatchCount - 1) * hiddenState.Length, reduced, 0, hiddenState.Length);
+                return new NdArray<Real>(reduced, hiddenState.Shape, 1, lstm);
+            }
+
+            throw new ArgumentException("Hidden state batch size does not match input batch size.");
         }
 
 
