@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Runtime.Serialization;
 using KelpNet.CPU;
 
 #if DOUBLE
@@ -17,7 +16,6 @@ using Math = KelpNet.MathF;
 namespace KelpNet
 {
 #if !DOUBLE
-    [Serializable]
     public class LSTM<T> : SingleInputFunction<T> where T : unmanaged, IComparable<T>
     {
         const string FUNCTION_NAME = "LSTM";
@@ -99,7 +97,7 @@ namespace KelpNet
 
             this.Parameters = functionParameters.ToArray();
 
-            InitFunc(new StreamingContext());
+            InitializeForwardBackward();
         }
 
         public NdArray<T> HiddenState
@@ -177,8 +175,7 @@ namespace KelpNet
             }
         }
 
-        [OnDeserializing]
-        void InitFunc(StreamingContext sc)
+        private void InitializeForwardBackward()
         {
             switch (this)
             {
