@@ -5,12 +5,6 @@ using System.Runtime.Serialization;
 
 namespace KelpNet.CPU
 {
-    /// <summary>
-    /// Provides optional save/load functionality for KelpNet models using DataContractSerializer.
-    /// Note: Save/Load is NOT required for normal operation. Models can be created, trained, 
-    /// and used without ever calling these methods. This is particularly useful for scenarios
-    /// like NinjaTrader indicators where persistence is not desired and models start fresh on each run.
-    /// </summary>
     public class ModelIO<T> where T : unmanaged, IComparable<T>
     {
         public static Type[] KnownTypes =
@@ -45,12 +39,6 @@ namespace KelpNet.CPU
             typeof(MaxPooling2D<T>)
         };
 
-        /// <summary>
-        /// Saves a KelpNet function/model to a file using DataContractSerializer and ZIP compression.
-        /// This method is optional - models do not need to be saved to function properly.
-        /// </summary>
-        /// <param name="function">The function to save</param>
-        /// <param name="fileName">The file path where the model will be saved</param>
         public static void Save(Function<T> function, string fileName)
         {
             DataContractSerializer bf = new DataContractSerializer(typeof(Function<T>), new DataContractSerializerSettings { KnownTypes = KnownTypes, PreserveObjectReferences = true });
@@ -71,12 +59,6 @@ namespace KelpNet.CPU
             }
         }
 
-        /// <summary>
-        /// Loads a previously saved KelpNet function/model from a file.
-        /// This method is optional - models can be created and initialized from scratch without loading.
-        /// </summary>
-        /// <param name="fileName">The file path from which to load the model</param>
-        /// <returns>The loaded function</returns>
         public static Function<T> Load(string fileName)
         {
             DataContractSerializer bf = new DataContractSerializer(typeof(Function<T>), new DataContractSerializerSettings { KnownTypes = KnownTypes, PreserveObjectReferences = true });
