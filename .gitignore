@@ -243,4 +243,5 @@ ModelManifest.xml
 
 # FAKE - F# Make
 .fake/
-*.DotSettings
+*.DotSettings# NuGet executables
+.nuget/
